@@ -227,6 +227,9 @@ class DirentDirNode : public DirentNode {
                        string* out) const override {
     ScopedReadDirTracker srdt(this, *path, cur_read_dirs);
     if (!srdt.ok()) {
+      fprintf(stderr, "FindEmulator: find: File system loop detected; `%s' is "
+              "part of the same file system loop as `%s'.\n",
+              path->c_str(), srdt.conflicted().c_str());
       return true;
     }
 
@@ -318,6 +321,10 @@ class DirentSymlinkNode : public DirentNode {
     unsigned char type = DT_LNK;
     if (fc.follows_symlinks && errno_ != ENOENT) {
       if (errno_) {
+        if (fc.type != FindCommandType::FINDLEAVES) {
+          fprintf(stderr, "FindEmulator: find: `%s': %s\n",
+                  path->c_str(), strerror(errno_));
+        }
         return true;
       }
 
@@ -749,7 +756,14 @@ class FindEmulatorImpl : public FindEmulator {
       }
       bool should_fallback = false;
       if (!FindDir(fc.chdir, &should_fallback)) {
-        return !should_fallback;
+        if (should_fallback)
+          return false;
+        if (!fc.redirect_to_devnull) {
+          fprintf(stderr,
+                  "FindEmulator: cd: %.*s: No such file or directory\n",
+                  SPF(fc.chdir));
+        }
+        return true;
       }
     }
 
@@ -770,6 +784,11 @@ class FindEmulatorImpl : public FindEmulator {
         if (should_fallback) {
           out->resize(orig_out_size);
           return false;
+        }
+        if (!fc.redirect_to_devnull) {
+          fprintf(stderr,
+                  "FindEmulator: find: `%s': No such file or directory\n",
+                  ConcatDir(fc.chdir, finddir).c_str());
         }
         continue;
       }
